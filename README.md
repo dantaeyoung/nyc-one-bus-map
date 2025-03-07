@@ -5,4 +5,6 @@ Where can a single bus ride take you?
 
 
 ### Info
-Data is from https://www.mta.info/developers
+- Bus map data is from https://www.mta.info/developers
+- NYC neighborhoods geojson from https://github.com/HodgesWardElliott/custom-nyc-neighborhoods
+
