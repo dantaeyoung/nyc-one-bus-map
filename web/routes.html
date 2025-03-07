@@ -1,0 +1,236 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>NYC Bus Map - Interactive</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0px;
+      }
+
+    #map { position: fixed; top: 0px; left: 0px; width: 100vw; height: 100vh; }
+
+    #info { 
+      position: fixed; 
+      top: 20px; right: 20px; 
+      width: 300px; 
+      padding: 20px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.8);
+      z-index: 10;
+
+        font-family: "Outfit", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 300;
+  font-style: normal;
+
+
+    }
+
+  .route-label {
+    background: rgba(255, 255, 255, 0.8);
+    color: black;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 4px 6px;
+    border-radius: 5px;
+    white-space: nowrap;
+    box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.2);
+}
+
+    .sitetitle {
+      font-size: 2em;
+      font-weight: 600;
+    }
+
+    .credits {
+      margin-bottom: 15px;
+      font-size: 0.8em;
+    }
+
+    .question {
+      margin-bottom: 5px;
+    }
+
+    .instruction {
+      font-style: italic;
+      font-size: 0.8em;
+      opacity: 0.7;
+    }
+
+  </style>
+</head>
+<body>
+  <div id="info">
+      <div class="sitetitle">NYC One Bus Map</div>
+      <div class="credits">by Dan Taeyoung</div>
+      <div class="question">Where can a single bus ride take you? </div>
+      <div class="instruction">(click on the map.)</div>
+
+    </div>
+  <div id="map"></div>
+  
+  <!-- Leaflet -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Turf.js for spatial analysis -->
+  <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
+
+  <script>
+    // Initialize the map centered over NYC
+    var map = L.map('map').setView([40.7128, -74.0060], 12);
+    
+    var CartoDB_DarkMatter = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20
+    });
+    CartoDB_DarkMatter.addTo(map);
+
+    // Global variables for GeoJSON layers
+    var stopsLayer, routesLayer;
+    var currentMarker = null;
+    var currentBufferLayer = null;
+
+    var routeLabels = new L.LayerGroup(); // Create a group to hold route name labels
+    map.addLayer(routeLabels); // Ensure it's added to the map
+
+    // ---------------------
+    // Load Routes (Lines)
+    // ---------------------
+    fetch('routes.geojson')
+      .then(response => response.json())
+      .then(data => {
+        routesLayer = L.geoJSON(data, {
+          style: function(feature) {
+            return {
+              color: feature.properties.route_color || "#000000", // Use route color
+              weight: 1,
+              opacity: 0.2
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            if (feature.properties && feature.properties.route_name) {
+              layer.bindTooltip(feature.properties.route_name, {sticky: true});
+            }
+          }
+        }).addTo(map);
+      })
+      .catch(err => console.error('Error loading routes:', err));
+
+    // ---------------------
+    // Load Stops (Points)
+    // ---------------------
+    fetch('stops.geojson')
+      .then(response => response.json())
+      .then(data => {
+        stopsLayer = L.geoJSON(data, {
+          pointToLayer: function(feature, latlng) {
+            return L.circle(latlng, {
+              radius: 10,
+              fillColor: feature.properties.route_color || "#000000", // Use stop's primary route color
+              color: "#ffffff",
+              weight: 0,
+              opacity: 1,
+              fillOpacity: 0.8
+            });
+          },
+          onEachFeature: function(feature, layer) {
+            if (feature.properties && feature.properties.stop_name) {
+              layer.bindTooltip(feature.properties.stop_name, {sticky: true});
+            }
+          }
+        }).addTo(map);
+      })
+      .catch(err => console.error('Error loading stops:', err));
+
+    // ---------------------
+    // Handle Click Events
+    // ---------------------
+
+    map.on('click', function(e) {
+      if (currentMarker) map.removeLayer(currentMarker);
+      if (currentBufferLayer) map.removeLayer(currentBufferLayer);
+
+      routeLabels.clearLayers(); // Remove old labels when clicking elsewhere
+
+      currentMarker = L.marker(e.latlng).addTo(map);
+      
+      var point = turf.point([e.latlng.lng, e.latlng.lat]);
+      var buffer = turf.buffer(point, 0.3, { units: 'kilometers' });
+
+      currentBufferLayer = L.geoJSON(buffer, {
+        style: { color: 'blue', weight: 1, fillOpacity: 0.1 }
+      }).addTo(map);
+
+      if (!stopsLayer || !routesLayer) return;
+      
+      // Step 1: Find all stops within buffer
+      var nearbyStops = [];
+      stopsLayer.eachLayer(function(layer) {
+        var stopCoords = [layer.getLatLng().lng, layer.getLatLng().lat];
+        if (turf.booleanPointInPolygon(turf.point(stopCoords), buffer)) {
+          nearbyStops.push(layer.feature);
+          layer.setStyle({ fillColor: 'yellow', color: 'yellow' });
+        }
+      });
+
+      // Step 2: Get all unique routes serving the selected stops
+      var selectedRoutes = new Set();
+      nearbyStops.forEach(function(feature) {
+        if (feature.properties && feature.properties.routes) {
+
+          var routesList = feature.properties.routes.split(',').map(r => r.trim());
+          routesList.forEach(routeId => selectedRoutes.add(routeId));
+        }
+      });
+
+
+      // Step 3: Highlight routes that match selected routes
+      routesLayer.eachLayer(function(layer) {
+        var routeId = layer.feature.properties.route_id;
+        if (selectedRoutes.has(routeId)) {
+          //layer.setStyle({ color: '#a0e9e4', weight: 10, opacity: 0.8 });  // Highlight selected route
+          layer.setStyle({ weight: 10, opacity: 0.8 });  // Highlight selected route
+          layer.bringToBack(); // Send highlighted routes to the background
+          
+
+        if (layer.feature.geometry.type === "LineString") {
+            var coords = layer.feature.geometry.coordinates;
+            if (coords.length > 1) {
+                var midIndex = Math.floor(coords.length / 2); // Get middle point
+                var midPoint = coords[midIndex]; // [lng, lat] in GeoJSON format
+
+                var labelIcon = L.divIcon({
+                    className: 'route-label',
+                    html: `<div style="
+color: ${layer.feature.properties.route_color || 'black'};">${layer.feature.properties.route_short_name}</div>`,
+                    iconSize: null // Let CSS control size
+                });
+
+                var labelMarker = L.marker([midPoint[1], midPoint[0]], { icon: labelIcon }); 
+                routeLabels.addLayer(labelMarker);
+            }
+        }
+          
+
+        } else {
+          layer.setStyle({  // Reset non-selected routes
+            color: layer.feature.properties.route_color || "#000000",
+            weight: 1,
+            opacity: 0.2
+          });
+        }
+      });
+
+     });
+
+
+  </script>
+</body>
+</html>
+
