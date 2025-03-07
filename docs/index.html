@@ -162,13 +162,13 @@
 
       routeLabels.clearLayers(); // Remove old labels when clicking elsewhere
 
-      currentMarker = L.marker(e.latlng).addTo(map);
+      //currentMarker = L.marker(e.latlng).addTo(map);
       
       var point = turf.point([e.latlng.lng, e.latlng.lat]);
       var buffer = turf.buffer(point, 0.3, { units: 'kilometers' });
 
       currentBufferLayer = L.geoJSON(buffer, {
-        style: { color: 'blue', weight: 1, fillOpacity: 0.1 }
+        style: { color: 'white', weight: 2, dashArray: "10 5", fillOpacity: 0.2 }
       }).addTo(map);
 
       if (!stopsLayer || !routesLayer) return;
